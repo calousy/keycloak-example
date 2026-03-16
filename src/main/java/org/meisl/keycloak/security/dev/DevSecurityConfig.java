@@ -1,10 +1,5 @@
 package org.meisl.keycloak.security.dev;
 
-import com.vaadin.flow.component.UI;
-import com.vaadin.flow.router.BeforeEnterListener;
-import com.vaadin.flow.server.VaadinService;
-import com.vaadin.flow.server.VaadinServiceInitListener;
-import com.vaadin.flow.server.auth.AnonymousAllowed;
 import com.vaadin.flow.spring.security.VaadinAwareSecurityContextHolderStrategy;
 import com.vaadin.flow.spring.security.VaadinSecurityConfigurer;
 import org.slf4j.Logger;
@@ -29,20 +24,7 @@ import org.springframework.security.web.context.HttpSessionSecurityContextReposi
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 
 /**
- * Security configuration for the development environment.
- * <p>
- * This configuration simplifies authentication during development by:
- * <ul>
- * <li>Using a simple login view for authentication</li>
- * <li>Providing predefined test users with fixed credentials</li>
- * <li>Using an in-memory user details service with no external dependencies</li>
- * </ul>
- * </p>
- * <p>
- * This configuration is automatically activated when the {@code prod} Spring profile is not active. It should
- * <strong>not</strong> be used in production environments, as it uses hardcoded credentials and simplified security
- * settings.
- * </p>
+ * Security configuration.
  * <p>
  * This configuration integrates with Vaadin's security framework through {@link VaadinSecurityConfigurer} to provide a
  * seamless login experience in the Vaadin UI.
@@ -61,6 +43,9 @@ class DevSecurityConfig {
 
     @Autowired
     private ClientRegistrationRepository registrationRepository;
+
+    @Autowired
+    private VaadinLoginSuccessHandler vaadinLoginSuccessHandler;
 
     // Resource Server Security (API)
     @Bean
@@ -103,6 +88,7 @@ class DevSecurityConfig {
 
                 .oauth2Login(o ->
                         o.userInfoEndpoint(x -> x.oidcUserService(keycloakOidcUserService))
+                                .successHandler(vaadinLoginSuccessHandler)
                 )
 
                 .logout(logout -> logout
@@ -110,13 +96,10 @@ class DevSecurityConfig {
                         .invalidateHttpSession(true)
                         .clearAuthentication(true)
                         .deleteCookies("JSESSIONID")
-                )
-
-                .logout(logout -> logout
                         // Allow Logout for GET request.
                         // Otherwise you would see the Spring Boot Logout confirmation page.
                         .logoutRequestMatcher(PathPatternRequestMatcher.pathPattern(HttpMethod.GET, "/logout"))
-                        .logoutSuccessHandler(oidcLogoutSuccessHandler()));
+                );
 
         return http.build();
     }
@@ -133,31 +116,8 @@ class DevSecurityConfig {
         OidcClientInitiatedLogoutSuccessHandler logoutSuccessHandler =
                 new OidcClientInitiatedLogoutSuccessHandler(registrationRepository);
 
-        // Wohin soll der User NACH dem Keycloak-Logout geleitet werden?
         logoutSuccessHandler.setPostLogoutRedirectUri("{baseUrl}");
-        //logoutSuccessHandler.setPostLogoutRedirectUri("http://localhost:1234/");
 
         return logoutSuccessHandler;
     }
-
-    @Bean
-    VaadinServiceInitListener developmentLoginConfigurer() {
-        return (serviceInitEvent) -> {
-            VaadinService source = serviceInitEvent.getSource();
-            source.addUIInitListener(uiEvent -> {
-                UI ui = uiEvent.getUI();
-                ui.addBeforeEnterListener((BeforeEnterListener) beforeEnterEvent -> {
-                    // Prüfen, ob die Ziel-View @AnonymousAllowed hat
-                    if (!beforeEnterEvent.getNavigationTarget().isAnnotationPresent(AnonymousAllowed.class)) {
-                        // User nicht angemeldet → URL merken
-                        String path = beforeEnterEvent.getLocation().getPathWithQueryParameters();
-                        beforeEnterEvent.getUI().getSession().getSession()
-                                .setAttribute("redirectAfterLogin", "/" + path);
-                    }
-                });
-            });
-        };
-    }
-
-
 }

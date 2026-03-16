@@ -91,8 +91,6 @@ public final class MainLayout extends AppLayout {
         userMenuItem.getSubMenu().addItem("Logout", click ->
                 UI.getCurrent().getPage().setLocation("/logout"));
 
-                //user.logoutFromKeycloak(UI.getCurrent(), "http://localhost:8089/"));
-
         return userMenu;
     }
 

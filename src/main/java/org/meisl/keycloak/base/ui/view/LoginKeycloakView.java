@@ -13,7 +13,7 @@ public class LoginKeycloakView extends VerticalLayout implements BeforeEnterObse
 
     @Override
     public void beforeEnter(BeforeEnterEvent beforeEnterEvent) {
-        // Sofort weiterleiten zum Keycloak-OAuth2 Login
+        // Redirect to Keycloak-OAuth2 Login
         UI.getCurrent().getPage().setLocation("/oauth2/authorization/keycloak-example");
     }
 }

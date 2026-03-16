@@ -1,4 +1,4 @@
-package org.meisl.keycloak.base.ui.view;
+package org.meisl.keycloak.base.ui;
 
 import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.notification.Notification;

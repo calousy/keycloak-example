@@ -1,10 +1,7 @@
 package org.meisl.keycloak.base.ui.view;
 
-import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.html.IFrame;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
-import com.vaadin.flow.router.BeforeEnterEvent;
-import com.vaadin.flow.router.BeforeEnterObserver;
 import com.vaadin.flow.router.Menu;
 import com.vaadin.flow.router.Route;
 import com.vaadin.flow.server.auth.AnonymousAllowed;
@@ -15,9 +12,9 @@ import com.vaadin.flow.server.auth.AnonymousAllowed;
 public class SwaggerUiView extends VerticalLayout {
 
     public SwaggerUiView() {
-        IFrame swaggerFrame = new IFrame("http://localhost:1234/swagger-ui/index.html");
+        IFrame swaggerFrame = new IFrame("http://localhost:123/swagger-ui/index.html");
         swaggerFrame.setWidth("100%");
-        swaggerFrame.setHeight("1000px"); // Höhe anpassen
+        swaggerFrame.setHeight("1000px");
         add(swaggerFrame);
         setSizeFull();
 
