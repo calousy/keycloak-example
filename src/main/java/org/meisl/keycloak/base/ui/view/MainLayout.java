@@ -1,7 +1,5 @@
 package org.meisl.keycloak.base.ui.view;
 
-import org.meisl.keycloak.security.AppUserInfo;
-import org.meisl.keycloak.security.CurrentUser;
 import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.applayout.AppLayout;
@@ -21,11 +19,16 @@ import com.vaadin.flow.server.auth.AnonymousAllowed;
 import com.vaadin.flow.server.menu.MenuConfiguration;
 import com.vaadin.flow.server.menu.MenuEntry;
 import com.vaadin.flow.spring.security.AuthenticationContext;
+import org.meisl.keycloak.security.CurrentUser;
+import org.springframework.security.oauth2.core.oidc.user.OidcUser;
+
+import java.util.Optional;
 
 import static com.vaadin.flow.theme.lumo.LumoUtility.*;
 
 @Layout
-@AnonymousAllowed // Allow all users, including anonymous ones. If you want only authenticated users, change to @PermitAll.
+@AnonymousAllowed
+// Allow all users, including anonymous ones. If you want only authenticated users, change to @PermitAll.
 public final class MainLayout extends AppLayout {
 
     private final AuthenticationContext authenticationContext;
@@ -34,7 +37,12 @@ public final class MainLayout extends AppLayout {
         this.authenticationContext = authenticationContext;
         setPrimarySection(Section.DRAWER);
         addToDrawer(createHeader(), new Scroller(createSideNav()));
-        currentUser.get().ifPresent(user -> addToDrawer(createUserMenu(user)));
+        Optional<OidcUser> oidcUser = currentUser.get();
+        oidcUser.ifPresentOrElse(user -> addToDrawer(createUserMenu(currentUser)),
+                () -> {
+                    SideNavItem loginItem = new SideNavItem("Login", LoginKeycloakView.class, VaadinIcon.SIGN_IN.create());
+                    addToDrawer(loginItem);
+                });
     }
 
     private Div createHeader() {
@@ -65,7 +73,7 @@ public final class MainLayout extends AppLayout {
         }
     }
 
-    private Component createUserMenu(AppUserInfo user) {
+    private Component createUserMenu(CurrentUser user) {
         var avatar = new Avatar(user.getFullName(), user.getPictureUrl());
         avatar.addThemeVariants(AvatarVariant.LUMO_XSMALL);
         avatar.addClassNames(Margin.Right.SMALL);
@@ -77,12 +85,13 @@ public final class MainLayout extends AppLayout {
 
         var userMenuItem = userMenu.addItem(avatar);
         userMenuItem.add(user.getFullName());
-        if (user.getProfileUrl() != null) {
-            userMenuItem.getSubMenu().addItem("View Profile",
-                    event -> UI.getCurrent().getPage().open(user.getProfileUrl()));
-        }
+        userMenuItem.getSubMenu().addItem("View Profile", event -> UI.getCurrent().getPage().open(user.getAccountUrl()));
+
         // TODO Add additional items to the user menu if needed
-        userMenuItem.getSubMenu().addItem("Logout", event -> authenticationContext.logout());
+        userMenuItem.getSubMenu().addItem("Logout", click ->
+                UI.getCurrent().getPage().setLocation("/logout"));
+
+                //user.logoutFromKeycloak(UI.getCurrent(), "http://localhost:8089/"));
 
         return userMenu;
     }

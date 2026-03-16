@@ -1,6 +1,7 @@
 package org.meisl.keycloak.taskmanagement.ui.view;
 
 import org.meisl.keycloak.base.ui.component.ViewToolbar;
+import org.meisl.keycloak.security.CurrentUser;
 import org.meisl.keycloak.taskmanagement.domain.Task;
 import org.meisl.keycloak.taskmanagement.service.TaskService;
 import com.vaadin.flow.component.button.Button;
@@ -16,6 +17,7 @@ import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import com.vaadin.flow.theme.lumo.LumoUtility;
 import jakarta.annotation.security.PermitAll;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Clock;
 import java.time.format.DateTimeFormatter;
@@ -37,8 +39,11 @@ public class TaskListView extends Main {
     final Button createBtn;
     final Grid<Task> taskGrid;
 
-    public TaskListView(TaskService taskService, Clock clock) {
+    private CurrentUser currentUser;
+
+    public TaskListView(TaskService taskService, Clock clock, CurrentUser currentUser) {
         this.taskService = taskService;
+        this.currentUser = currentUser;
 
         description = new TextField();
         description.setPlaceholder("What do you want to do?");

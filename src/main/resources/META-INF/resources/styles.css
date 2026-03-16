@@ -1,0 +1,7 @@
+iframe {
+    border: none;
+}
+
+.dark-mode .swagger-ui {
+    background: var(--lumo-base-color);
+}

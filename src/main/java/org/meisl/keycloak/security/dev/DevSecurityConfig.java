@@ -1,21 +1,32 @@
 package org.meisl.keycloak.security.dev;
 
-import com.vaadin.flow.router.RouteConfiguration;
+import com.vaadin.flow.component.UI;
+import com.vaadin.flow.router.BeforeEnterListener;
+import com.vaadin.flow.server.VaadinService;
 import com.vaadin.flow.server.VaadinServiceInitListener;
-import com.vaadin.flow.spring.security.VaadinAwareSecurityContextHolderStrategyConfiguration;
+import com.vaadin.flow.server.auth.AnonymousAllowed;
+import com.vaadin.flow.spring.security.VaadinAwareSecurityContextHolderStrategy;
 import com.vaadin.flow.spring.security.VaadinSecurityConfigurer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.cloud.CloudPlatform;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
-import org.springframework.context.annotation.Profile;
-import org.springframework.core.env.Environment;
+import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.client.oidc.web.logout.OidcClientInitiatedLogoutSuccessHandler;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 
 /**
  * Security configuration for the development environment.
@@ -33,68 +44,120 @@ import org.springframework.security.web.SecurityFilterChain;
  * settings.
  * </p>
  * <p>
- * The predefined users are declared in the {@link SampleUsers} class.
- * </p>
- * <p>
  * This configuration integrates with Vaadin's security framework through {@link VaadinSecurityConfigurer} to provide a
  * seamless login experience in the Vaadin UI.
  * </p>
  *
- * @see DevUserDetailsService The in-memory user details service implementation
- * @see DevUser Builder for creating development test users
- * @see SampleUsers User credentials for the predefined users
  */
 @EnableWebSecurity
 @Configuration
-@Import({ VaadinAwareSecurityContextHolderStrategyConfiguration.class })
-@Profile("!prod")
+@Import({VaadinAwareSecurityContextHolderStrategy.class})
 class DevSecurityConfig {
 
     private static final Logger log = LoggerFactory.getLogger(DevSecurityConfig.class);
 
-    DevSecurityConfig(Environment environment) {
-        if (!isRunningLocally(environment)) {
-            log.error("Development security config attempted in non-local environment");
-            throw new IllegalStateException("Development security can only be used when running locally");
-        }
-        log.warn("╔═════════════════════════════════════════════════════════════╗");
-        log.warn("║                     DEVELOPMENT SECURITY                    ║");
-        log.warn("║ This should not be used in production environments.         ║");
-        log.warn("╚═════════════════════════════════════════════════════════════╝");
+    @Autowired
+    private KeycloakOidcUserService keycloakOidcUserService;
+
+    @Autowired
+    private ClientRegistrationRepository registrationRepository;
+
+    // Resource Server Security (API)
+    @Bean
+    @Order(1)
+    public SecurityFilterChain apiSecurity(HttpSecurity http) throws Exception {
+        http
+                .securityMatcher("/api/**")
+                .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+                .oauth2ResourceServer(
+                        (oauth2) -> oauth2.jwt(
+                                jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())
+                        ))
+                .csrf(AbstractHttpConfigurer::disable); // API usually stateless
+
+        return http.build();
+    }
+
+    // UI Security (Vaadin + OAuth2 Login)
+    @Bean
+    @Order(2)
+    public SecurityFilterChain vaadinSecurityFilterChain(HttpSecurity http) throws Exception {
+        http.with(VaadinSecurityConfigurer.vaadin(), Customizer.withDefaults());
+
+        http
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(
+                                "/actuator/health",
+                                "/swagger-ui/**",
+                                "/v3/api-docs/**").permitAll())
+
+                // SecurityContext im HttpSession speichern (WICHTIG für Vaadin!)
+                .securityContext(ctx ->
+                        ctx.securityContextRepository(new HttpSessionSecurityContextRepository())
+                )
+
+                // Sessions erlauben
+                .sessionManagement(sm ->
+                        sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
+                )
+
+                .oauth2Login(o ->
+                        o.userInfoEndpoint(x -> x.oidcUserService(keycloakOidcUserService))
+                )
+
+                .logout(logout -> logout
+                        .logoutSuccessHandler(oidcLogoutSuccessHandler())
+                        .invalidateHttpSession(true)
+                        .clearAuthentication(true)
+                        .deleteCookies("JSESSIONID")
+                )
+
+                .logout(logout -> logout
+                        // Allow Logout for GET request.
+                        // Otherwise you would see the Spring Boot Logout confirmation page.
+                        .logoutRequestMatcher(PathPatternRequestMatcher.pathPattern(HttpMethod.GET, "/logout"))
+                        .logoutSuccessHandler(oidcLogoutSuccessHandler()));
+
+        return http.build();
     }
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-        return http.with(VaadinSecurityConfigurer.vaadin(), configurer -> configurer.loginView(DevLoginView.LOGIN_PATH))
-                .build();
+    public JwtAuthenticationConverter jwtAuthenticationConverter() {
+        JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
+        converter.setJwtGrantedAuthoritiesConverter(new KeycloakRoleConverter("example-api"));
+        return converter;
     }
 
-    @Bean
-    UserDetailsService userDetailsService() {
-        return new DevUserDetailsService(SampleUsers.ALL_USERS);
+    // Dieser Handler sorgt dafür, dass auch die Session bei Keycloak beendet wird
+    private LogoutSuccessHandler oidcLogoutSuccessHandler() {
+        OidcClientInitiatedLogoutSuccessHandler logoutSuccessHandler =
+                new OidcClientInitiatedLogoutSuccessHandler(registrationRepository);
+
+        // Wohin soll der User NACH dem Keycloak-Logout geleitet werden?
+        logoutSuccessHandler.setPostLogoutRedirectUri("{baseUrl}");
+        //logoutSuccessHandler.setPostLogoutRedirectUri("http://localhost:1234/");
+
+        return logoutSuccessHandler;
     }
 
     @Bean
     VaadinServiceInitListener developmentLoginConfigurer() {
         return (serviceInitEvent) -> {
-            if (serviceInitEvent.getSource().getDeploymentConfiguration().isProductionMode()) {
-                log.warn("╔════════════════════════════════════════════════════════════════════════════════════════╗");
-                log.warn("║ DEVELOPMENT SECURITY is ACTIVE but Vaadin is running in PRODUCTION mode.               ║");
-                log.warn("║ If you are testing production mode on your local machine, this is fine.                ║");
-                log.warn("║ If you are seeing this in production, you should check your application configuration! ║");
-                log.warn("╚════════════════════════════════════════════════════════════════════════════════════════╝");
-            }
-            var routeConfiguration = RouteConfiguration.forApplicationScope();
-            routeConfiguration.setRoute(DevLoginView.LOGIN_PATH, DevLoginView.class);
+            VaadinService source = serviceInitEvent.getSource();
+            source.addUIInitListener(uiEvent -> {
+                UI ui = uiEvent.getUI();
+                ui.addBeforeEnterListener((BeforeEnterListener) beforeEnterEvent -> {
+                    // Prüfen, ob die Ziel-View @AnonymousAllowed hat
+                    if (!beforeEnterEvent.getNavigationTarget().isAnnotationPresent(AnonymousAllowed.class)) {
+                        // User nicht angemeldet → URL merken
+                        String path = beforeEnterEvent.getLocation().getPathWithQueryParameters();
+                        beforeEnterEvent.getUI().getSession().getSession()
+                                .setAttribute("redirectAfterLogin", "/" + path);
+                    }
+                });
+            });
         };
     }
 
-    private boolean isRunningLocally(Environment environment) {
-        boolean hasUserHome = System.getProperty("user.home") != null;
-        CloudPlatform activePlatform = CloudPlatform.getActive(environment);
 
-        log.info("Local environment check - User home: {}, Cloud platform: {}", hasUserHome, activePlatform);
-
-        return hasUserHome && activePlatform == null;
-    }
 }

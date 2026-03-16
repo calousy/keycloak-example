@@ -1,0 +1,45 @@
+server.port: 1234
+logging.level.org.atmosphere: warn
+
+# Launch the default browser when starting the application in development mode
+vaadin:
+  launch-browser: true
+
+# To improve the performance during development.
+# For more information https://vaadin.com/docs/latest/flow/integrations/spring/configuration#special-configuration-parameters
+  allowed-packages: com.vaadin,org.vaadin,com.flowingcode,org.meisl.keycloak
+
+# Let Hibernate update the schema automatically or create it if it does not exist.
+#
+# DO NOT DO THIS IN PRODUCTION!
+#
+# Instead, use Flyway or another controlled way of managing your database schema.
+# See https://vaadin.com/docs/latest/building-apps/forms-data/add-flyway for instructions.
+spring:
+  jpa.hibernate.ddl-auto: update
+  security:
+    oauth2:
+      client:
+        provider:
+          keycloak-example:
+            issuer-uri: http://192.168.178.92:8080/realms/keycloak-example
+          keycloak-api:
+            issuer-uri: http://192.168.178.92:8080/realms/keycloak-example
+        registration:
+          keycloak-example:
+            authorization-grant-type: authorization_code
+            client-id: frontend
+            client-secret: X3CpjwNRQeHyfbG8T7M5PhdYmAg2LoYx
+            redirect-uri: "{baseUrl}/login/oauth2/code/keycloak-frontend"
+            scope: profile,openid,email,roles
+          keycloak-api:
+            client-id: example-api
+            client-secret: 7relGCnhqm7oiktEipNL0niyNhO7hlXr
+            authorization-grant-type: client_credentials
+            scope: openid #,roles -- if we need to use roles of the API client
+
+      resourceserver:
+        jwt:
+          issuer-uri: http://192.168.178.92:8080/realms/keycloak-example
+
+#debug: true

@@ -1,13 +1,22 @@
 package org.meisl.keycloak.security;
 
+import com.vaadin.flow.component.UI;
+import com.vaadin.flow.server.VaadinSession;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolderStrategy;
+import org.springframework.security.oauth2.core.OAuth2AuthenticatedPrincipal;
+import org.springframework.security.oauth2.core.oidc.StandardClaimAccessor;
+import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
@@ -21,7 +30,7 @@ import static java.util.Objects.requireNonNull;
  * </p>
  * <p>
  * Usage examples (assumes {@code currentUser} has been injected):
- *
+ * <p>
  * <!-- spotless:off -->
  * <pre>
  * {@code
@@ -55,8 +64,7 @@ public class CurrentUser {
      * {@link org.springframework.security.core.context.SecurityContextHolder}.
      * </p>
      *
-     * @param securityContextHolderStrategy
-     *            the strategy used to fetch the security context (never {@code null}).
+     * @param securityContextHolderStrategy the strategy used to fetch the security context (never {@code null}).
      */
     CurrentUser(SecurityContextHolderStrategy securityContextHolderStrategy) {
         this.securityContextHolderStrategy = requireNonNull(securityContextHolderStrategy);
@@ -74,12 +82,12 @@ public class CurrentUser {
      * </p>
      *
      * @return an {@code Optional} containing the current user if authenticated and accessible, or an empty
-     *         {@code Optional} if there is no authenticated user or the principal doesn't implement
-     *         {@link AppUserPrincipal}
+     * {@code Optional} if there is no authenticated user or the principal doesn't implement
+     * {@link AppUserPrincipal}
      * @see #require() For cases where authentication is required
      */
-    public Optional<AppUserInfo> get() {
-        return getPrincipal().map(AppUserPrincipal::getAppUser);
+    public Optional<OidcUser> get() {
+        return getPrincipal();
     }
 
     /**
@@ -94,11 +102,11 @@ public class CurrentUser {
      * </p>
      *
      * @return an {@code Optional} containing the current principal if authenticated and accessible, or an empty
-     *         {@code Optional} if there is no authenticated user or the principal doesn't implement
-     *         {@link AppUserPrincipal}
+     * {@code Optional} if there is no authenticated user or the principal doesn't implement
+     * {@link AppUserPrincipal}
      * @see #requirePrincipal() For cases where authentication is required
      */
-    public Optional<AppUserPrincipal> getPrincipal() {
+    public Optional<OidcUser> getPrincipal() {
         return Optional.ofNullable(
                 getPrincipalFromAuthentication(securityContextHolderStrategy.getContext().getAuthentication()));
     }
@@ -106,19 +114,18 @@ public class CurrentUser {
     /**
      * Extracts the principal from the provided authentication object.
      *
-     * @param authentication
-     *            the authentication object from which to extract the principal, may be {@code null}
+     * @param authentication the authentication object from which to extract the principal, may be {@code null}
      * @return the principal if available, or {@code null} if it cannot be extracted
      */
-    private @Nullable AppUserPrincipal getPrincipalFromAuthentication(@Nullable Authentication authentication) {
+    private @Nullable OidcUser getPrincipalFromAuthentication(@Nullable Authentication authentication) {
         if (authentication == null || authentication.getPrincipal() == null
-                || authentication instanceof AnonymousAuthenticationToken) {
+            || authentication instanceof AnonymousAuthenticationToken) {
             return null;
         }
 
         var principal = authentication.getPrincipal();
 
-        if (principal instanceof AppUserPrincipal appUserPrincipal) {
+        if (principal instanceof OidcUser appUserPrincipal) {
             return appUserPrincipal;
         }
 
@@ -135,11 +142,10 @@ public class CurrentUser {
      * </p>
      *
      * @return the currently authenticated user (never {@code null})
-     * @throws AuthenticationCredentialsNotFoundException
-     *             if there is no authenticated user, or the authenticated principal doesn't implement
-     *             {@link AppUserPrincipal}
+     * @throws AuthenticationCredentialsNotFoundException if there is no authenticated user, or the authenticated principal doesn't implement
+     *                                                    {@link AppUserPrincipal}
      */
-    public AppUserInfo require() {
+    public OidcUser require() {
         return get().orElseThrow(() -> new AuthenticationCredentialsNotFoundException("No current user"));
     }
 
@@ -151,11 +157,86 @@ public class CurrentUser {
      * </p>
      *
      * @return the currently authenticated principal (never {@code null})
-     * @throws AuthenticationCredentialsNotFoundException
-     *             if there is no authenticated user, or the authenticated principal doesn't implement
-     *             {@link AppUserPrincipal}
+     * @throws AuthenticationCredentialsNotFoundException if there is no authenticated user, or the authenticated principal doesn't implement
+     *                                                    {@link AppUserPrincipal}
      */
-    public AppUserPrincipal requirePrincipal() {
+    public OidcUser requirePrincipal() {
         return getPrincipal().orElseThrow(() -> new AuthenticationCredentialsNotFoundException("No current user"));
     }
+
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return getPrincipal().map(OAuth2AuthenticatedPrincipal::getAuthorities).orElse(List.of());
+    }
+
+    /**
+     * Liefert alle Rollen als Strings (ROLE_admin, ROLE_user, ...)
+     */
+    public List<String> getRoles() {
+        return getAuthorities().stream().map(GrantedAuthority::getAuthority).toList();
+    }
+
+    /**
+     * Liefert alle Claims aus dem OidcUser
+     */
+    public Map<String, Object> getClaims() {
+        return get()
+                .map(OidcUser::getClaims)
+                .orElse(Map.of());
+    }
+
+    public List<String> getKeycloakRoles() {
+        return getRoles().stream()
+                .map(r -> r.startsWith("ROLE_") ? r.substring(5) : r)
+                .toList();
+    }
+
+    public Optional<String> getUsername() {
+        return get().map(OidcUser::getPreferredUsername);
+    }
+
+    public Optional<String> getLastName() {
+        return get().map(OidcUser::getFamilyName);
+    }
+
+    public Optional<String> getFirstName() {
+        return get().map(StandardClaimAccessor::getGivenName);
+    }
+
+    public String getPictureUrl() {
+        return get().map(StandardClaimAccessor::getPicture).orElse("");
+    }
+
+    public Optional<String> getEmail() {
+        return get().map(OidcUser::getEmail);
+    }
+
+    public String getProfileUrl() {
+        return get().map(StandardClaimAccessor::getProfile).orElse(null);
+    }
+
+    public String getAccountUrl() {
+        return get()
+                .map(user -> user.getIssuer().toString() + "/account")
+                .orElseThrow(() -> new IllegalStateException("User not authenticated"));
+    }
+
+    public String getFullName() {
+        return get().map(StandardClaimAccessor::getFullName).orElse("");
+    }
+
+    public Optional<String> getAvatar() {
+        return get().map(OidcUser::getPicture);
+    }
+
+    public Optional<Boolean> isEmailVerified() {
+        return get().map(OidcUser::getEmailVerified);
+    }
+
+    public void logoutFromKeycloak(UI ui, String redirectUrl) {
+        VaadinSession.getCurrent().getSession().invalidate();
+        VaadinSession.getCurrent().close();
+        ui.getPage().setLocation(require().getIssuer() + "/protocol/openid-connect/logout?post_logout_redirect_uri=" + redirectUrl);
+    }
+
+
 }

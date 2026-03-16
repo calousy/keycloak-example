@@ -1,5 +1,13 @@
 # Keycloak Example README
 
+- Create a realm "keycloak-example" in Keycloak
+- Create a user in the realm
+- Create a client "frontend" in the realm
+- Create a client role "admin"
+- Assign the role to your user
+
+
+
 - [ ] TODO Replace or update this README with instructions relevant to your application
 
 To start the application in development mode, import it into your IDE and run the `Application` class. 
