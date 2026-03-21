@@ -50,7 +50,7 @@ class DevSecurityConfig {
     // Resource Server Security (API)
     @Bean
     @Order(1)
-    public SecurityFilterChain apiSecurity(HttpSecurity http) throws Exception {
+    public SecurityFilterChain apiSecurity(HttpSecurity http) {
         http
                 .securityMatcher("/api/**")
                 .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
